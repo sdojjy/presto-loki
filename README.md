@@ -20,3 +20,9 @@ example:
 ```sql
 select * from loki.default.loki where timestamp > 1599575057 and timestamp <1599575157 and labels = label('{job="varlogs"}');
 ```
+
+## Configuration
+```properties
+loki.uri=http://localhost:3100
+loki.query.chunk.size.duration=1h
+```
