@@ -19,10 +19,14 @@ import io.airlift.configuration.ConfigDescription;
 import javax.annotation.PostConstruct;
 import javax.validation.constraints.NotNull;
 import java.net.URI;
+import io.airlift.units.Duration;
+import io.airlift.units.MinDuration;
+import java.util.concurrent.TimeUnit;
 
 public class LokiConnectorConfig
 {
     private URI lokiURI = URI.create("http://localhost:3100");
+    private Duration queryChunkSizeDuration = new Duration(1, TimeUnit.HOURS);
 
     @NotNull
     public URI getLokiURI()
@@ -35,6 +39,20 @@ public class LokiConnectorConfig
     public LokiConnectorConfig setLokiURI(URI lokiURI)
     {
         this.lokiURI = lokiURI;
+        return this;
+    }
+
+    @MinDuration("1ms")
+    public Duration getQueryChunkSizeDuration()
+    {
+        return queryChunkSizeDuration;
+    }
+
+    @Config("loki.query.chunk.size.duration")
+    @ConfigDescription("The duration of each query to loki")
+    public LokiConnectorConfig setQueryChunkSizeDuration(Duration queryChunkSizeDuration)
+    {
+        this.queryChunkSizeDuration = queryChunkSizeDuration;
         return this;
     }
 

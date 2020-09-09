@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
+import io.airlift.units.Duration;
 import io.prestosql.spi.connector.*;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.Marker;
@@ -43,6 +44,7 @@ public class LokiSplitManager
     private final LokiClock lokiClock;
 
     private final URI lokiURI;
+    private final Duration queryChunkSizeDuration;
 
     @Inject
     public LokiSplitManager(LokiClient lokiClient, LokiClock lokiClock, LokiConnectorConfig config) {
@@ -51,6 +53,7 @@ public class LokiSplitManager
 
         requireNonNull(config, "config is null");
         this.lokiURI = config.getLokiURI();
+        this.queryChunkSizeDuration = config.getQueryChunkSizeDuration();
     }
 
     @Override
@@ -72,16 +75,26 @@ public class LokiSplitManager
         if (tableHandle.getPredicate().isPresent()) {
             query = determinePredicateLabel(tableHandle.getPredicate().get()).orElse("");
         }
-        List<ConnectorSplit> splits = null;
+        List<ConnectorSplit> splits = new ArrayList<>();
         try {
-            splits = ImmutableList.of(
-                    new LokiSplit(buildQuery(
-                            lokiURI,
-                            times.get(0),
-                            times.get(1),
-                            query)));
+            long duration = queryChunkSizeDuration.toMillis() / 1000;
+            long start = times.get(0);
+            long max = times.get(1);
+            while (start < max) {
+                long end = duration + start - 1;
+                if (end >= max) {
+                    end = max;
+                }
+                splits.add(new LokiSplit(buildQuery(
+                        lokiURI,
+                        start,
+                        end,
+                        query)));
+                start = end + 1;
+            }
+            log.info("start=%d, end=%d, split size=%d", times.get(0), times.get(1), splits.size());
         } catch (URISyntaxException e) {
-            e.printStackTrace();
+            log.error("build url failed", e);
         }
         return new FixedSplitSource(splits);
     }
