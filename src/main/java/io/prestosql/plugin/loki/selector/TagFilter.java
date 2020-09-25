@@ -13,26 +13,9 @@
  */
 package io.prestosql.plugin.loki.selector;
 
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-
 import java.util.Map;
 
 
-@JsonTypeInfo(
-        use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.EXISTING_PROPERTY,
-        property = "type")
-@JsonSubTypes({
-        @JsonSubTypes.Type(value = Filters.AndFilter.class, name = "and"),
-        @JsonSubTypes.Type(value = Filters.OrFilter.class, name = "or"),
-        @JsonSubTypes.Type(value = Filters.EqualsFilter.class, name = "eq"),
-        @JsonSubTypes.Type(value = Filters.GlobMatchFilter.class, name = "glob"),
-        @JsonSubTypes.Type(value = Filters.TrueFilter.class, name = "true"),
-        @JsonSubTypes.Type(value = Filters.FalseFilter.class, name = "false"),
-        @JsonSubTypes.Type(value = Filters.NotFilter.class, name = "not")
-
-})
 public interface TagFilter {
     boolean eval(Map<String, String> tags);
 }

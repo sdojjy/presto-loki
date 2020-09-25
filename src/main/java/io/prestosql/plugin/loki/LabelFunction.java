@@ -63,7 +63,7 @@ public class LabelFunction {
             vmap.put(entry.getKey(), entry.getValue().toString());
         }
         String f = new String(expr.getBytes(), StandardCharsets.UTF_8);
-        TagFilter filter = cached.computeIfAbsent(f, (k) -> Filters.parseLokiStyle(f));
+        TagFilter filter = cached.computeIfAbsent(f, (k) -> Filters.parse(f));
         return filter.eval(vmap);
     }
 

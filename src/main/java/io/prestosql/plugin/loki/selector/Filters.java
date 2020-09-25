@@ -14,14 +14,16 @@
 package io.prestosql.plugin.loki.selector;
 
 
-import com.alibaba.fastjson.JSONObject;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Strings;
+import io.prestosql.plugin.loki.ast.LabelSelectorLexer;
+import io.prestosql.plugin.loki.ast.LabelSelectorParser;
+import org.antlr.v4.runtime.CharStreams;
+import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.tree.ParseTreeWalker;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class Filters {
 
@@ -29,10 +31,6 @@ public class Filters {
         private String type = "and";
 
         protected List<TagFilter> filters = new ArrayList<>();
-
-        public String getType() {
-            return type;
-        }
 
         public void setType(String type) {
             this.type = type;
@@ -170,11 +168,10 @@ public class Filters {
         }
     }
 
-    public static class GlobMatchFilter implements TagFilter {
-        private String type = "glob";
+    public static class RegexMatchFilter implements TagFilter {
+        private String type = "regex";
         private String key;
-        private String expr;
-        private GlobMatcher matcher;
+        private Pattern pattern;
 
         public String getType() {
             return type;
@@ -184,44 +181,15 @@ public class Filters {
             this.type = type;
         }
 
-        public String getKey() {
-            return key;
-        }
 
-        public void setKey(String key) {
+        public RegexMatchFilter(String key, String matcher) {
             this.key = key;
-        }
-
-        public String getExpr() {
-            return expr;
-        }
-
-        public void setExpr(String expr) {
-            this.expr = expr;
-        }
-
-        public GlobMatcher getMatcher() {
-            return matcher;
-        }
-
-        public void setMatcher(GlobMatcher matcher) {
-            this.matcher = matcher;
-        }
-
-        public GlobMatchFilter() {
-        }
-
-        public GlobMatchFilter(String key, String matcher) {
-            this.key = key;
-            this.expr = matcher;
+            this.pattern = Pattern.compile(matcher);
         }
 
         @Override
         public boolean eval(Map<String, String> tags) {
-            if (matcher == null) {
-                matcher = new GlobMatcher(expr);
-            }
-            return tags.containsKey(key) && matcher.test(tags.get(key));
+            return tags.containsKey(key) && pattern.matcher(tags.get(key)).find();
         }
     }
 
@@ -259,87 +227,29 @@ public class Filters {
         }
     }
 
+    public static TagFilter parse(String query) {
+        LabelSelectorLexer lexer = new LabelSelectorLexer(CharStreams.fromString(query));
+        CommonTokenStream tokens = new CommonTokenStream(lexer);
 
-    public static TagFilter parse(JSONObject json) {
-        return parse(json.toString());
+        LabelSelectorParser parser = new LabelSelectorParser(tokens);
+        lexer.removeErrorListeners();
+        lexer.addErrorListener(new LabelSelectorError());
+        LabelSelectorParser.BasequeryContext ctx = parser.basequery();
+
+        ParseTreeWalker walker = new ParseTreeWalker();
+        BaseQueryListener baseQuery = new BaseQueryListener();
+        walker.walk(baseQuery, ctx);
+
+        TagFilter expr = baseQuery.getTagFilter();
+        if (expr == null) {
+            throw new IllegalArgumentException("invalid query");
+        }
+        return expr;
     }
 
-    public static TagFilter parse(String jsonStr) {
-        if (jsonStr == null) {
-            return new TrueFilter();
-        }
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            return mapper.reader().forType(TagFilter.class).readValue(jsonStr);
-        } catch (IOException e) {
-            return new TrueFilter();
-        }
-    }
-
-    public static TagFilter parseLokiStyle(String lokiExpr) {
-        if (Strings.isNullOrEmpty(lokiExpr)) {
-            return new TrueFilter();
-        }
-
-        lokiExpr = lokiExpr.trim();
-        if (!lokiExpr.startsWith("{") || !lokiExpr.endsWith("}")) {
-            return new TrueFilter();
-        }
-        lokiExpr = lokiExpr.trim();
-        lokiExpr = lokiExpr.substring(1, lokiExpr.length() - 1);
-        Filters.AndFilter tagFilter = new Filters.AndFilter();
-        String[] parts = lokiExpr.split(",");
-        for (String part : parts) {
-
-            String key = "";
-            String op = "";
-            String value = "";
-            if (part.contains("!=")) {
-                op = "!=";
-                key = part.substring(0, part.indexOf("!=")).trim();
-                value = part.substring(part.indexOf("!=") + 2).trim();
-                if (value.startsWith("\"")) {
-                    value = value.substring(1, value.length() - 1);
-                }
-            } else if (part.contains("!~")) {
-                op = "!~";
-                key = part.substring(0, part.indexOf("!~")).trim();
-                value = part.substring(part.indexOf("!~") + 2).trim();
-                if (value.startsWith("\"")) {
-                    value = value.substring(1, value.length() - 1);
-                }
-            } else if (part.contains("=~")) {
-                op = "=~";
-                key = part.substring(0, part.indexOf("=~")).trim();
-                value = part.substring(part.indexOf("=~") + 2).trim();
-                if (value.startsWith("\"")) {
-                    value = value.substring(1, value.length() - 1);
-                }
-            } else if (part.contains("=")) {
-                op = "=";
-                key = part.substring(0, part.indexOf("=")).trim();
-                value = part.substring(part.indexOf("=") + 1).trim();
-                if (value.startsWith("\"")) {
-                    value = value.substring(1, value.length() - 1);
-                }
-            }
-
-
-            if ("=".equals(op)) {
-                tagFilter.AddFilter(new Filters.EqualsFilter(key, value));
-            } else if ("!=".equals(op)) {
-                tagFilter.AddFilter(new Filters.NotFilter(new Filters.EqualsFilter(key, value)));
-            } else if ("=~".equals(op)) {
-                tagFilter.AddFilter(new Filters.GlobMatchFilter(key, value));
-            } else {//!~
-                tagFilter.AddFilter(new Filters.NotFilter(new Filters.GlobMatchFilter(key, value)));
-            }
-        }
-        return tagFilter;
-    }
 
     public static void main(String[] args) {
-        parseLokiStyle("{aa =~ \"xxx\", bb!= sss}");
+        parse("{aa =~ \"xxx\", bb!= \"sss\"}");
     }
 
 }
